@@ -21,10 +21,33 @@ WHERE username IN ('client.viktor','client.mila','client.igor','client.sara');
 
 INSERT INTO owners (user_id)
 SELECT user_id FROM users WHERE username IN ('client.mila','client.igor');
-INSERT INTO vet_clinic_applications
-(name, email, phone, city, address, submitted_at, status, reviewed_at, reviewed_by, denial_reason)
+-- vet_clinics must be inserted first: at this point in the migration history
+-- vet_clinic_applications.clinic_id is the FK side (V7 later reverses this).
+INSERT INTO vet_clinics
+(name, email, phone, location, city, address)
 VALUES
     (
+        'Happy Paws Clinic',
+        'contact@happypaws.vet',
+        '+389 70 111 222',
+        'Center',
+        'Skopje',
+        'Partizanska 10'
+    ),
+    (
+        'VetCare Center',
+        'info@vetcare.vet',
+        '+389 70 333 444',
+        'Downtown',
+        'Bitola',
+        'Shirok Sokak 55'
+    );
+
+INSERT INTO vet_clinic_applications
+(clinic_id, name, email, phone, city, address, submitted_at, status, reviewed_at, reviewed_by, denial_reason)
+VALUES
+    (
+        (SELECT clinic_id FROM vet_clinics WHERE name = 'Happy Paws Clinic'),
         'Happy Paws Clinic',
         'contact@happypaws.vet',
         '+389 70 111 222',
@@ -37,6 +60,7 @@ VALUES
         NULL
     ),
     (
+        (SELECT clinic_id FROM vet_clinics WHERE name = 'VetCare Center'),
         'VetCare Center',
         'info@vetcare.vet',
         '+389 70 333 444',
@@ -47,34 +71,6 @@ VALUES
         NOW() - INTERVAL '38 days',
         (SELECT user_id FROM users WHERE username = 'admin.ana'),
         NULL
-    );
-
-INSERT INTO vet_clinics
-(name, email, phone, location, city, address, user_id, application_id)
-VALUES
-    (
-        'Happy Paws Clinic',
-        'contact@happypaws.vet',
-        '+389 70 111 222',
-        'Center',
-        'Skopje',
-        'Partizanska 10',
-        (SELECT user_id FROM users WHERE username = 'clinic.happypaws'),
-        (SELECT application_id
-         FROM vet_clinic_applications
-         WHERE name = 'Happy Paws Clinic')
-    ),
-    (
-        'VetCare Center',
-        'info@vetcare.vet',
-        '+389 70 333 444',
-        'Downtown',
-        'Bitola',
-        'Shirok Sokak 55',
-        (SELECT user_id FROM users WHERE username = 'clinic.vetcare'),
-        (SELECT application_id
-         FROM vet_clinic_applications
-         WHERE name = 'VetCare Center')
     );
 
 INSERT INTO animals (owner_id, name, sex, date_of_birth, photo_url, species, breed, located_name) VALUES
@@ -136,44 +132,5 @@ INSERT INTO health_records (animal_id, appointment_id, type, description, date) 
 INSERT INTO notifications (user_id, type, message, is_read, created_at) VALUES
                                                                             ((SELECT user_id FROM users WHERE username='client.mila'), 'APPOINTMENT', 'Your appointment is confirmed for Max.', FALSE, NOW() - INTERVAL '1 day'),
                                                                             ((SELECT user_id FROM users WHERE username='client.igor'), 'LISTING',     'Your listing status is ARCHIVED.',       TRUE,  NOW() - INTERVAL '6 days');
-
-INSERT INTO clinic_unavailable_slots (clinic_id, date_time, reason, created_at)
-VALUES
-    (
-        (SELECT clinic_id FROM vet_clinics WHERE name = 'Happy Paws Clinic'),
-        NOW() + INTERVAL '1 day',
-        'Doctor unavailable - private appointment',
-        NOW()
-    ),
-    (
-        (SELECT clinic_id FROM vet_clinics WHERE name = 'Happy Paws Clinic'),
-        NOW() + INTERVAL '3 days',
-        'Clinic equipment maintenance',
-        NOW()
-    ),
-    (
-        (SELECT clinic_id FROM vet_clinics WHERE name = 'Happy Paws Clinic'),
-        NOW() + INTERVAL '7 days',
-        'Staff training session',
-        NOW()
-    ),
-    (
-        (SELECT clinic_id FROM vet_clinics WHERE name = 'VetCare Center'),
-        NOW() + INTERVAL '2 days',
-        'Emergency-only working hours',
-        NOW()
-    ),
-    (
-        (SELECT clinic_id FROM vet_clinics WHERE name = 'VetCare Center'),
-        NOW() + INTERVAL '5 days',
-        'Veterinarian on leave',
-        NOW()
-    ),
-    (
-        (SELECT clinic_id FROM vet_clinics WHERE name = 'VetCare Center'),
-        NOW() + INTERVAL '10 days',
-        'Clinic closed for local holiday',
-        NOW()
-    );
 
 COMMIT;

@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ${DB_LOCAL_PASSWORD}
       POSTGRES_DB: ${DB_LOCAL_NAME}
     ports:
-      - "5433:5432"
+      - "5436:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
