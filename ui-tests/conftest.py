@@ -1,6 +1,9 @@
+import json
 import os
+import time
 import uuid
 from dataclasses import dataclass
+from urllib.request import Request, urlopen
 
 import pytest
 from selenium import webdriver
@@ -13,6 +16,14 @@ class Account:
     username: str
     email: str
     password: str
+
+
+@dataclass(frozen=True)
+class FavoriteApi:
+    add: object
+    clear: object
+    ids: object
+    wait_for: object
 
 
 WINDOW_WIDTH = 1400
@@ -32,6 +43,18 @@ def pytest_addoption(parser):
     )
 
 
+def _api(url, method="GET", payload=None, user_id=None):
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = Request(url, data=data, method=method)
+    request.add_header("Accept", "application/json")
+    request.add_header("Content-Type", "application/json")
+    if user_id is not None:
+        request.add_header("X-User-Id", str(user_id))
+    with urlopen(request, timeout=15) as response:
+        body = response.read().decode("utf-8")
+    return json.loads(body) if body else None
+
+
 def _account(prefix, username, email):
     return Account(
         username=_env("PETIFY_%s_USERNAME" % prefix, username),
@@ -49,13 +72,86 @@ def base_url():
 
 
 @pytest.fixture(scope="session")
+def api_url():
+    return _env("PETIFY_API_URL", "http://localhost:8081").rstrip("/")
+
+
+@pytest.fixture(scope="session")
 def accounts():
     return {
         "client": _account("CLIENT", "ui.client", "ui.client@petify.test"),
         "admin": _account("ADMIN", "ui.admin", "ui.admin@petify.test"),
         "clinic": _account("CLINIC", "ui.clinic", "ui.clinic@petify.test"),
         "blocked": _account("BLOCKED", "ui.blocked", "ui.blocked@petify.test"),
+        "owner": _account("OWNER", "ui.owner", "ui.owner@petify.test"),
+        "favorites": _account("FAVORITES", "ui.fav", "ui.fav@petify.test"),
+        "recommended": _account("RECOMMENDED", "ui.recs", "ui.recs@petify.test"),
+        "unrecommended": _account("UNRECOMMENDED", "ui.norecs", "ui.norecs@petify.test"),
     }
+
+
+@pytest.fixture(scope="session")
+def account_ids(api_url, accounts):
+    resolved = {}
+
+    def lookup(name):
+        if name not in resolved:
+            account = accounts[name]
+            user = _api(
+                api_url + "/api/auth/login",
+                method="POST",
+                payload={"username": account.username, "password": account.password},
+            )
+            resolved[name] = int(user["userId"])
+        return resolved[name]
+
+    return lookup
+
+
+@pytest.fixture(scope="session")
+def listing_ids(api_url):
+    rows = _api(api_url + "/api/public/listings") or []
+    return {
+        row["animalName"]: int(row["listingId"])
+        for row in rows
+        if row.get("animalName")
+    }
+
+
+@pytest.fixture
+def favorite_api(api_url, account_ids):
+    user_id = account_ids("favorites")
+
+    def ids():
+        rows = _api(api_url + "/api/favorites", user_id=user_id) or []
+        return {int(row["listingId"]) for row in rows}
+
+    def add(listing_id):
+        _api(
+            "%s/api/favorites/%s" % (api_url, listing_id),
+            method="POST",
+            user_id=user_id,
+        )
+
+    def clear():
+        for listing_id in ids():
+            _api(
+                "%s/api/favorites/%s" % (api_url, listing_id),
+                method="DELETE",
+                user_id=user_id,
+            )
+
+    def wait_for(expected, timeout=15):
+        deadline = time.monotonic() + timeout
+        current = ids()
+        while current != expected and time.monotonic() < deadline:
+            time.sleep(0.25)
+            current = ids()
+        return current
+
+    clear()
+    yield FavoriteApi(add=add, clear=clear, ids=ids, wait_for=wait_for)
+    clear()
 
 
 @pytest.fixture
