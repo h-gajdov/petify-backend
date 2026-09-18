@@ -1,4 +1,5 @@
 import os
+import uuid
 from dataclasses import dataclass
 
 import pytest
@@ -12,6 +13,10 @@ class Account:
     username: str
     email: str
     password: str
+
+
+WINDOW_WIDTH = 1400
+WINDOW_HEIGHT = 1200
 
 
 def _env(name, default):
@@ -53,6 +58,19 @@ def accounts():
     }
 
 
+@pytest.fixture
+def new_account():
+    def make():
+        unique = uuid.uuid4().hex[:12]
+        return Account(
+            username="ui.signup.%s" % unique,
+            email="ui.signup.%s@petify.test" % unique,
+            password=_env("PETIFY_DEFAULT_PASSWORD", "TestPass123!"),
+        )
+
+    return make
+
+
 @pytest.fixture(scope="session")
 def blocked_reason():
     return _env("PETIFY_BLOCKED_REASON", "Repeated policy violations")
@@ -69,6 +87,8 @@ def driver(base_url, request):
         options = FirefoxOptions()
         if headless:
             options.add_argument("-headless")
+        options.add_argument("--width=%s" % WINDOW_WIDTH)
+        options.add_argument("--height=%s" % WINDOW_HEIGHT)
         instance = webdriver.Firefox(options=options)
     else:
         options = ChromeOptions()
@@ -76,7 +96,7 @@ def driver(base_url, request):
             options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--window-size=1400,1000")
+        options.add_argument("--window-size=%s,%s" % (WINDOW_WIDTH, WINDOW_HEIGHT))
         instance = webdriver.Chrome(options=options)
 
     instance.set_page_load_timeout(30)
