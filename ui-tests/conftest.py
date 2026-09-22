@@ -19,6 +19,15 @@ class Account:
 
 
 @dataclass(frozen=True)
+class ClinicApi:
+    clinic_id: int
+    block: object
+    unblock: object
+    slots: object
+    clear: object
+
+
+@dataclass(frozen=True)
 class FavoriteApi:
     add: object
     clear: object
@@ -152,6 +161,46 @@ def favorite_api(api_url, account_ids):
     clear()
     yield FavoriteApi(add=add, clear=clear, ids=ids, wait_for=wait_for)
     clear()
+
+
+@pytest.fixture
+def clinic_api(api_url, account_ids):
+    user_id = account_ids("clinic")
+    clinic = _api(api_url + "/api/clinics/my", user_id=user_id)
+
+    def slots(date):
+        rows = _api(
+            "%s/api/appointments/my-clinic/unavailable-slots?date=%s" % (api_url, date),
+            user_id=user_id,
+        ) or []
+        return {row["label"]: int(row["slotId"]) for row in rows}
+
+    def block(date, label, reason="Seeded block"):
+        return _api(
+            api_url + "/api/appointments/my-clinic/unavailable-slots",
+            method="POST",
+            payload={"dateTime": "%sT%s" % (date, label), "reason": reason},
+            user_id=user_id,
+        )
+
+    def unblock(slot_id):
+        _api(
+            "%s/api/appointments/my-clinic/unavailable-slots/%s" % (api_url, slot_id),
+            method="DELETE",
+            user_id=user_id,
+        )
+
+    def clear(date):
+        for slot_id in slots(date).values():
+            unblock(slot_id)
+
+    return ClinicApi(
+        clinic_id=int(clinic["clinicId"]),
+        block=block,
+        unblock=unblock,
+        slots=slots,
+        clear=clear,
+    )
 
 
 @pytest.fixture
