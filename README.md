@@ -175,9 +175,7 @@ cd petify-backend
 
 Create a `.env` file in the project root for the local PostgreSQL container:
 
-You can copy `.env.example` to `.env` and set the password. Both Docker Compose
-and Spring Boot read this file. If you already have a database volume, use its
-existing credentials. Start Docker Desktop before running Docker commands.
+You can copy `.env.example` to `.env` for Docker Compose and to `.env.properties` for Spring Boot (or export the variables). If you already have a database volume, use its existing credentials. Start Docker Desktop before running Docker commands.
 
 ```env
 DB_LOCAL_USERNAME=postgres
