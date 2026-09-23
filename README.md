@@ -318,6 +318,27 @@ mvnw.cmd test
 ./mvnw test
 ```
 
+### UI tests with Testcontainers
+
+The Selenium UI suite starts an isolated PostgreSQL 15 container, builds and launches
+the backend against it, and starts the sibling `petify-frontend` Vite project. Flyway
+loads the UI seed accounts and listings into the temporary database. Docker, Java,
+Node.js, Chrome or Firefox, and an installed frontend (`npm ci` in
+`../petify-frontend`) are required.
+
+From this repository:
+
+```bash
+python -m venv ui-tests/.venv
+ui-tests/.venv/bin/python -m pip install -r ui-tests/requirements.txt
+ui-tests/.venv/bin/python -m pytest ui-tests
+```
+
+To run against applications you have already started, use
+`ui-tests/.venv/bin/python -m pytest ui-tests --external-stack`. In that mode,
+`PETIFY_BASE_URL` and `PETIFY_API_URL` select the frontend and backend URLs
+(defaults: `http://localhost:5173` and `http://localhost:8081`).
+
 ## Database
 
 The project uses PostgreSQL as its primary database.

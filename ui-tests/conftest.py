@@ -10,6 +10,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 
+from stack import managed_ui_stack
+
 
 @dataclass(frozen=True)
 class Account:
@@ -57,6 +59,12 @@ def pytest_addoption(parser):
         default=False,
         help="Show the browser window while the tests run.",
     )
+    parser.addoption(
+        "--external-stack",
+        action="store_true",
+        default=False,
+        help="Use PETIFY_BASE_URL and PETIFY_API_URL instead of starting a Testcontainers stack.",
+    )
 
 
 def _api(url, method="GET", payload=None, user_id=None):
@@ -83,13 +91,25 @@ def _account(prefix, username, email):
 
 
 @pytest.fixture(scope="session")
-def base_url():
-    return _env("PETIFY_BASE_URL", "http://localhost:5173").rstrip("/")
+def app_urls(request):
+    if request.config.getoption("--external-stack"):
+        yield (
+            _env("PETIFY_BASE_URL", "http://localhost:5173").rstrip("/"),
+            _env("PETIFY_API_URL", "http://localhost:8081").rstrip("/"),
+        )
+    else:
+        with managed_ui_stack() as urls:
+            yield urls
 
 
 @pytest.fixture(scope="session")
-def api_url():
-    return _env("PETIFY_API_URL", "http://localhost:8081").rstrip("/")
+def base_url(app_urls):
+    return app_urls[0]
+
+
+@pytest.fixture(scope="session")
+def api_url(app_urls):
+    return app_urls[1]
 
 
 @pytest.fixture(scope="session")
@@ -318,8 +338,6 @@ def driver(base_url, request):
         instance = webdriver.Chrome(options=options)
 
     instance.set_page_load_timeout(30)
-    instance.get(base_url + "/")
-    instance.execute_script("window.localStorage.clear();")
 
     yield instance
 
