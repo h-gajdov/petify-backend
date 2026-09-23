@@ -94,6 +94,9 @@ def managed_ui_stack():
             [
                 "java", "-jar", str(JAR),
                 "--spring.profiles.active=ui-test",
+                "--spring.flyway.locations=classpath:db/migration,filesystem:%s" % (
+                    BACKEND / "src" / "test" / "resources" / "db" / "test-seed"
+                ),
                 "--spring.datasource.url=jdbc:postgresql://%s:%s/%s" % (
                     postgres.get_container_host_ip(), postgres.get_exposed_port(5432), postgres.dbname
                 ),
