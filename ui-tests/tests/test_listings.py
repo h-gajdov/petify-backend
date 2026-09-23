@@ -12,6 +12,12 @@ FAVORITE_LOGIN_ALERT = "Please log in to save favorites"
 FAVORITE_FAILURE_ALERT = "Failed to update favorite. Please try again."
 NO_EMAIL_ALERT = "This owner does not have a contact email available."
 API_ERROR_BANNER = "Couldn't load from API."
+PUBLIC_LISTINGS_URL = "/api/public/listings"
+MOCK_TITLES = ["Luna — Gentle Lab Mix", "Milo — Playful Orange Tabby"]
+OWNER_EMAIL = "ui.owner@petify.test"
+SVG_PLACEHOLDER = "data:image/svg+xml"
+PET_PLACEHOLDER = "all_outline"
+BROKEN_PHOTO_URL = "http://127.0.0.1:9/broken-photo.jpg"
 
 
 @pytest.fixture
@@ -304,3 +310,97 @@ def test_contact_owner_without_email_shows_alert(listings_page):
     listings_page.click_contact("StubNoEmail")
 
     assert listings_page.alert_text() == NO_EMAIL_ALERT
+
+
+def test_loading_state_is_shown_while_fetching(listings_page):
+    listings_page.open().delay_endpoint(PUBLIC_LISTINGS_URL, 1500)
+    listings_page.click_reload().wait_for_loading()
+
+    assert listings_page.reload_label() == "Loading…"
+    assert listings_page.is_reload_disabled()
+    assert listings_page.titles() == []
+
+    listings_page.wait_until_loaded()
+
+    assert not listings_page.is_loading()
+    assert listings_page.reload_label() == "Reload"
+    assert listings_page.has_card(BEAGLE)
+
+
+def test_populated_listings_render_card_details(listings_page):
+    listings_page.open()
+    listings_page.stub_listings(
+        [
+            stub_row(
+                animal_name="StubRender",
+                price=250,
+                located_name="Skopje",
+                description="Stubbed render listing.",
+            )
+        ]
+    )
+    listings_page.reload()
+
+    assert listings_page.titles() == ["StubRender"]
+    assert listings_page.card_details("StubRender") == {
+        "title": "StubRender",
+        "price": "$250.00",
+        "created": "Posted Jan 1, 2026",
+        "meta": "Dog / Beagle",
+        "location": "Skopje",
+        "chips": ["StubRender", "By Stub Owner", "Active"],
+        "badge": "Active",
+        "description": "Stubbed render listing.",
+    }
+    assert not listings_page.has_error()
+
+
+def test_empty_listings_show_empty_state(listings_page):
+    listings_page.open()
+    listings_page.stub_listings([])
+    listings_page.reload()
+
+    assert listings_page.is_empty()
+    assert listings_page.titles() == []
+    assert not listings_page.has_error()
+
+
+def test_api_failure_shows_banner_and_mock_listings(listings_page):
+    listings_page.open()
+    listings_page.fail_endpoint(PUBLIC_LISTINGS_URL)
+    listings_page.reload()
+
+    assert API_ERROR_BANNER in listings_page.error_message()
+    assert "Failed to load listings (500)" in listings_page.error_detail()
+    assert all(title in listings_page.titles() for title in MOCK_TITLES)
+    assert not listings_page.has_card(BEAGLE)
+
+
+def test_contact_owner_opens_prefilled_mailto(listings_page):
+    listings_page.open().record_navigations()
+    listings_page.click_contact(BEAGLE)
+
+    assert listings_page.recorded_mailto() == {
+        "to": OWNER_EMAIL,
+        "subject": "Question about UiBeagle on Petify",
+        "body": "Hi Olive Owner,\n\nI saw your listing for UiBeagle on Petify "
+        "and would like to know more.\n\nThanks!",
+    }
+
+
+def test_missing_photo_uses_placeholder_image(listings_page):
+    listings_page.open()
+
+    assert PET_PLACEHOLDER in listings_page.image_src(BEAGLE)
+    assert PET_PLACEHOLDER in listings_page.image_src(CANARY)
+
+
+def test_broken_photo_url_falls_back_to_placeholder(listings_page):
+    listings_page.open()
+    listings_page.stub_listings(
+        [stub_row(animal_name="StubBroken", photo_url=BROKEN_PHOTO_URL)]
+    )
+    listings_page.reload()
+    listings_page.wait_for_image_src("StubBroken", SVG_PLACEHOLDER)
+
+    assert BROKEN_PHOTO_URL not in listings_page.image_src("StubBroken")

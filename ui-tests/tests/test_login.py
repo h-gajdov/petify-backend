@@ -4,6 +4,9 @@ from pages.login_page import LoginPage
 
 INVALID_CREDENTIALS = "Invalid username or password"
 BLOCKED_PREFIX = "Your account has been blocked. Reason:"
+LOGIN_URL = "/api/auth/login"
+SUBMIT_LABEL = "Log in"
+LOADING_LABEL = "Logging in…"
 
 
 @pytest.fixture
@@ -123,3 +126,107 @@ def test_whitespace_only_fields_do_not_authenticate(login_page):
 
     assert login_page.is_on_login()
     assert login_page.stored_user() is None
+
+
+def test_show_password_reveals_typed_value(login_page, accounts):
+    account = accounts["client"]
+
+    login_page.open().fill(account.username, account.password)
+
+    assert login_page.password_type() == "password"
+    assert login_page.password_toggle_label() == "Show password"
+
+    login_page.toggle_password()
+
+    assert login_page.password_type() == "text"
+    assert login_page.password_value() == account.password
+    assert login_page.password_toggle_label() == "Hide password"
+
+
+def test_hide_password_masks_value_again(login_page, accounts):
+    account = accounts["client"]
+
+    login_page.open().fill(account.username, account.password)
+    login_page.toggle_password().toggle_password()
+
+    assert login_page.password_type() == "password"
+    assert login_page.password_value() == account.password
+    assert login_page.password_toggle_label() == "Show password"
+
+
+def test_loading_state_is_shown_while_submitting(login_page, accounts):
+    account = accounts["client"]
+
+    login_page.open().delay_endpoint(LOGIN_URL, 1500)
+
+    assert login_page.submit_label() == SUBMIT_LABEL
+
+    login_page.login_as(account.username, account.password)
+    login_page.wait_for_submit_label(LOADING_LABEL)
+
+    assert login_page.is_submit_disabled()
+
+    login_page.wait_for_redirect_to("/")
+
+    assert login_page.stored_user()["username"] == account.username
+
+
+def test_double_submit_sends_single_request(login_page, accounts):
+    account = accounts["client"]
+
+    login_page.open().delay_endpoint(LOGIN_URL, 1500)
+    login_page.login_as(account.username, account.password)
+    login_page.wait_for_submit_label(LOADING_LABEL)
+    login_page.press_enter()
+    login_page.wait_for_redirect_to("/")
+
+    assert login_page.delayed_requests() == 1
+    assert login_page.stored_user()["username"] == account.username
+
+
+def test_redirect_query_is_honored(login_page, accounts):
+    account = accounts["client"]
+
+    login_page.open("?redirect=/profile").login_as(account.username, account.password)
+    login_page.wait_for_redirect_to("/profile")
+
+    assert login_page.stored_user()["username"] == account.username
+
+
+def test_missing_redirect_lands_on_listings(login_page, accounts, base_url, driver):
+    account = accounts["client"]
+
+    login_page.open().login_as(account.username, account.password)
+    login_page.wait_for_redirect_to("/")
+
+    assert driver.current_url.rstrip("/") == base_url
+    assert "redirect" not in driver.current_url
+
+
+def test_create_account_link_opens_signup(login_page):
+    login_page.open().click_link("Create account")
+    login_page.wait_for_redirect_to("/signup")
+
+    assert login_page.stored_user() is None
+
+
+def test_back_to_listings_link_opens_home(login_page):
+    login_page.open().click_link("Back to listings")
+    login_page.wait_for_redirect_to("/")
+
+    assert login_page.stored_user() is None
+
+
+def test_remember_me_is_not_offered_and_session_persists(login_page, accounts):
+    account = accounts["client"]
+
+    login_page.open()
+
+    assert not login_page.has_checkbox()
+
+    login_page.login_as(account.username, account.password)
+    login_page.wait_for_redirect_to("/")
+    login_page.refresh()
+
+    assert login_page.stored_user()["username"] == account.username
+    assert login_page.has_link("/profile")

@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, unquote, urlsplit
+
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
@@ -46,10 +48,49 @@ window.fetch = function (input, init) {
 };
 """
 
+DELAYED_ENDPOINT_STUB = """
+const marker = arguments[0];
+const delay = arguments[1];
+const original = window.fetch;
+window.__uiTestRequestCount = 0;
+window.fetch = function (input, init) {
+  const url = typeof input === 'string' ? input : String(input.url);
+  if (url.indexOf(marker) === -1) return original.apply(this, arguments);
+  window.__uiTestRequestCount += 1;
+  const self = this;
+  const args = arguments;
+  return new Promise(function (resolve) {
+    setTimeout(resolve, delay);
+  }).then(function () {
+    return original.apply(self, args);
+  });
+};
+"""
+
+NAVIGATION_RECORDER = """
+window.__uiTestNavigations = [];
+window.navigation.addEventListener('navigate', function (event) {
+  const url = event.destination.url;
+  if (url.indexOf('mailto:') !== 0) return;
+  window.__uiTestNavigations.push(url);
+  event.preventDefault();
+});
+"""
+
 IN_VIEWPORT = """
 const rect = arguments[0].getBoundingClientRect();
 return rect.top >= 0 && rect.bottom <= window.innerHeight;
 """
+
+
+def parse_mailto(url):
+    parts = urlsplit(url)
+    query = parse_qs(parts.query)
+    return {
+        "to": unquote(parts.path),
+        "subject": query.get("subject", [""])[0],
+        "body": query.get("body", [""])[0],
+    }
 
 
 def stub_row(**overrides):
@@ -84,6 +125,7 @@ class ListingsPage:
     CARD = (By.CSS_SELECTOR, ".listing-card")
     CARD_TITLE = (By.CSS_SELECTOR, ".listing-card .title")
     ERROR = (By.CSS_SELECTOR, ".alert.alert-warning[role='alert']")
+    ERROR_DETAIL = (By.CSS_SELECTOR, ".alert.alert-warning[role='alert'] .small")
     LOADING = (By.XPATH, "//p[normalize-space()='Loading listings…']")
     EMPTY = (By.XPATH, "//p[normalize-space()='No listings match your filters.']")
 
@@ -268,3 +310,71 @@ class ListingsPage:
         text = alert.text
         alert.accept()
         return text
+
+    def click_reload(self):
+        self._click(self.driver.find_element(*self.RELOAD))
+        return self
+
+    def reload_label(self):
+        return self.driver.find_element(*self.RELOAD).text.strip()
+
+    def is_reload_disabled(self):
+        return not self.driver.find_element(*self.RELOAD).is_enabled()
+
+    def wait_for_loading(self):
+        self.wait.until(EC.presence_of_element_located(self.LOADING))
+        return self
+
+    def is_loading(self):
+        return len(self.driver.find_elements(*self.LOADING)) > 0
+
+    def delay_endpoint(self, marker, delay_ms):
+        self.driver.execute_script(DELAYED_ENDPOINT_STUB, marker, delay_ms)
+        return self
+
+    def error_detail(self):
+        elements = self.driver.find_elements(*self.ERROR_DETAIL)
+        return elements[0].text.strip() if elements else ""
+
+    def card_details(self, title):
+        card = self.card(title)
+
+        def text(selector):
+            elements = card.find_elements(By.CSS_SELECTOR, selector)
+            return elements[0].text.strip() if elements else ""
+
+        return {
+            "title": text(".title"),
+            "price": text(".price").replace("\u00a0", " "),
+            "created": text(".created"),
+            "meta": text(".meta"),
+            "location": text(".location"),
+            "chips": [
+                chip.text.strip()
+                for chip in card.find_elements(By.CSS_SELECTOR, ".chips .chip")
+            ],
+            "badge": text(".badge"),
+            "description": text(".description"),
+        }
+
+    def image_src(self, title):
+        image = self.card(title).find_element(By.CSS_SELECTOR, "img.image")
+        self.driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});", image
+        )
+        return image.get_attribute("src")
+
+    def wait_for_image_src(self, title, prefix):
+        self.wait.until(lambda d: self.image_src(title).startswith(prefix))
+        return self
+
+    def record_navigations(self):
+        self.driver.execute_script(NAVIGATION_RECORDER)
+        return self
+
+    def recorded_mailto(self):
+        self.wait.until(
+            lambda d: d.execute_script("return window.__uiTestNavigations || [];")
+        )
+        urls = self.driver.execute_script("return window.__uiTestNavigations;")
+        return parse_mailto(urls[-1])

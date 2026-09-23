@@ -2,8 +2,11 @@ import json
 
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+
+from .listings_page import DELAYED_ENDPOINT_STUB
 
 STORAGE_KEY = "petify.auth.user"
 
@@ -72,6 +75,10 @@ class SignupPage:
     SUBMIT = (By.CSS_SELECTOR, "form button[type='submit']")
     ERROR = (By.CSS_SELECTOR, ".alert.alert-danger[role='alert']")
     SUCCESS = (By.CSS_SELECTOR, ".alert.alert-success[role='alert']")
+    PASSWORD_TOGGLE = (By.CSS_SELECTOR, "form .btn-eye")
+    NAV_PROFILE = (By.CSS_SELECTOR, "nav a[href='/profile']")
+    NAV_LOGOUT = (By.XPATH, "//nav//button[normalize-space()='Log out']")
+    NAV_LOGIN = (By.CSS_SELECTOR, "nav a[href='/login']")
 
     def __init__(self, driver, base_url, timeout=15):
         self.driver = driver
@@ -200,3 +207,60 @@ class SignupPage:
         return self.driver.execute_script(
             "return arguments[0].validity.valid;", element
         )
+
+    def toggle_password(self, index=0):
+        toggles = self.driver.find_elements(*self.PASSWORD_TOGGLE)
+        self.driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});", toggles[index]
+        )
+        toggles[index].click()
+        return self
+
+    def field_type(self, locator):
+        return self.driver.find_element(*locator).get_attribute("type")
+
+    def toggle_labels(self):
+        return [
+            element.get_attribute("aria-label")
+            for element in self.driver.find_elements(*self.PASSWORD_TOGGLE)
+        ]
+
+    def delay_signup(self, delay_ms):
+        self.driver.execute_script(DELAYED_ENDPOINT_STUB, "/api/auth/signup", delay_ms)
+        return self
+
+    def delayed_requests(self):
+        return self.driver.execute_script("return window.__uiTestRequestCount || 0;")
+
+    def press_enter(self):
+        self.driver.find_element(*self.CONFIRM).send_keys(Keys.ENTER)
+        return self
+
+    def submit_label(self):
+        return self.driver.find_element(*self.SUBMIT).text.strip()
+
+    def is_submit_disabled(self):
+        return not self.driver.find_element(*self.SUBMIT).is_enabled()
+
+    def wait_for_submit_label(self, expected):
+        self.wait.until(lambda d: self.submit_label() == expected)
+        return self
+
+    def nav_profile_text(self):
+        elements = self.driver.find_elements(*self.NAV_PROFILE)
+        return elements[0].text.strip() if elements else ""
+
+    def has_nav_logout(self):
+        return len(self.driver.find_elements(*self.NAV_LOGOUT)) > 0
+
+    def has_nav_login(self):
+        return len(self.driver.find_elements(*self.NAV_LOGIN)) > 0
+
+    def wait_for_nav_profile(self):
+        self.wait.until(EC.presence_of_element_located(self.NAV_PROFILE))
+        return self
+
+    def refresh(self):
+        self.driver.refresh()
+        self.driver.execute_script(HIDE_DEV_OVERLAY)
+        return self
