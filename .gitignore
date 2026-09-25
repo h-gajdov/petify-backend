@@ -9,6 +9,7 @@ uploads/
 .env.properties
 .env.local
 .env.*.local
+.env
 
 ### STS ###
 .apt_generated

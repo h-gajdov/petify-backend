@@ -175,6 +175,8 @@ cd petify-backend
 
 Create a `.env` file in the project root for the local PostgreSQL container:
 
+You can copy `.env.example` to `.env` for Docker Compose and to `.env.properties` for Spring Boot (or export the variables). If you already have a database volume, use its existing credentials. Start Docker Desktop before running Docker commands.
+
 ```env
 DB_LOCAL_USERNAME=postgres
 DB_LOCAL_PASSWORD=your_password
@@ -192,7 +194,7 @@ docker compose up -d
 The included Docker Compose configuration starts PostgreSQL on:
 
 ```text
-localhost:5433
+localhost:5436
 ```
 
 The database data is stored in a Docker volume so that it remains available after the container stops.
@@ -222,7 +224,7 @@ Configure the Spring datasource in `src/main/resources/application.properties` o
 Example local configuration:
 
 ```properties
-spring.datasource.url=jdbc:postgresql://localhost:5433/petify
+spring.datasource.url=jdbc:postgresql://localhost:5436/petify
 spring.datasource.username=${DB_LOCAL_USERNAME}
 spring.datasource.password=${DB_LOCAL_PASSWORD}
 
@@ -318,6 +320,67 @@ mvnw.cmd test
 ./mvnw test
 ```
 
+## End-to-End Tests (TestNG)
+
+The opt-in TestNG suite starts the backend on a random HTTP port and a disposable
+PostgreSQL 15 container, then runs the real Flyway migrations. Java 17 and a running
+Docker daemon are required; the first run downloads dependencies and container images.
+No separately running backend, development database, or `.env` credentials are needed.
+
+Run only the end-to-end suite on Windows:
+
+```powershell
+.\mvnw.cmd -Pe2e test-compile failsafe:integration-test failsafe:verify
+```
+
+On macOS or Linux:
+
+```sh
+./mvnw -Pe2e test-compile failsafe:integration-test failsafe:verify
+```
+
+The suite covers registration, login by username and email, duplicate registrations,
+incorrect credentials, pet creation and retrieval, promotion from client to owner,
+required pet fields, attempts to create pets for another user, and missing pets.
+Each test creates its own users through HTTP; the application and database container
+are stopped after the suite, including when assertions fail. No services or repositories
+are mocked. The tests use the API's current `X-User-Id` convention for pet creation.
+
+Reports are written to `target/failsafe-reports` (including TestNG HTML and XML).
+Docker or application startup failures fail the suite rather than silently skipping it.
+Normal `mvnw test` still runs JUnit and excludes these end-to-end tests. To run JUnit
+and the end-to-end suite together, use `mvnw verify -Pe2e`; the existing JUnit context
+test still requires its usual local database configuration.
+
+## Stress Tests
+
+Opt-in API stress tests use JUnit and Java's HTTP client. With the backend running
+on port 8081 and at least one active public listing:
+
+```sh
+.\mvnw.cmd test -Pstress
+.\mvnw.cmd test -Pstress "-Dstress.users=50" "-Dstress.requests=20"
+```
+
+Normal Maven tests exclude stress tests. Four tests cover public listings, active
+listings, listing details, and clinics. Each test defaults to 20 concurrent workers
+making 10 requests each (200 measured requests per endpoint, plus setup requests).
+Every request must return HTTP 200 and valid JSON with the expected shape or listing
+ID. A failed request fails the test. Each request has a 10-second timeout and each
+load phase has a two-minute deadline.
+
+The terminal shows successful request counts and total elapsed time; JUnit reports
+are in `target/surefire-reports`. This simplified suite does not calculate latency
+percentiles, write CSV reports, or test login. `stress.users` (1–200),
+`stress.requests` (1–1000), and `stress.baseUrl` are the only settings; the old
+duration and workload settings no longer apply.
+
+If the test reports that it cannot reach the backend, start Docker Desktop,
+copy `.env.example` to `.env`, set your local database credentials, then run
+`docker compose up -d` and `.\mvnw.cmd spring-boot:run`. Wait for the
+`Started PetifyApplication` message before running stress tests in another terminal.
+The database port is 5436 and the API port is 8081.
+
 ## Database
 
 The project uses PostgreSQL as its primary database.
@@ -391,7 +454,7 @@ VITE_API_BASE_URL=http://localhost:8080
 The included `docker-compose.yml` uses:
 
 - PostgreSQL 15 Alpine
-- Host port `5433`
+- Host port `5436`
 - Container port `5432`
 - Environment-based database credentials
 - A persistent Docker volume
