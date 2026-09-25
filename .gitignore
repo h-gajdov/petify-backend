@@ -6,10 +6,11 @@ uploads/
 !**/src/test/**/target/
 
 # Environment variables
+.env
 .env.properties
 .env.local
 .env.*.local
-.env
+.env.example
 
 ### STS ###
 .apt_generated
