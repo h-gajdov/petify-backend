@@ -320,6 +320,31 @@ mvnw.cmd test
 ./mvnw test
 ```
 
+### UI tests with Testcontainers
+
+The Selenium UI suite starts an isolated PostgreSQL 15 container, builds and launches
+the backend against it, and starts the sibling `petify-frontend` Vite project. Flyway
+loads test-only seed data from `src/test/resources/db/test-seed` into the temporary
+database. Docker, Java,
+Node.js, Chrome or Firefox, and an installed frontend (`npm ci` in
+`../petify-frontend`) are required.
+
+From this repository:
+
+```bash
+python -m venv ui-tests/.venv
+ui-tests/.venv/bin/python -m pip install -r ui-tests/requirements.txt
+ui-tests/.venv/bin/python -m pytest ui-tests
+```
+
+To run against applications you have already started, use
+`ui-tests/.venv/bin/python -m pytest ui-tests --external-stack`. In that mode,
+`PETIFY_BASE_URL` and `PETIFY_API_URL` select the frontend and backend URLs
+(defaults: `http://localhost:5173` and `http://localhost:8081`). Start the
+external backend with the test seed location enabled, for example by passing
+`--spring.flyway.locations=classpath:db/migration,filesystem:$PWD/src/test/resources/db/test-seed`
+from this repository. Use an isolated test database for that mode.
+
 ## End-to-End Tests (TestNG)
 
 The opt-in TestNG suite starts the backend on a random HTTP port and a disposable
@@ -393,17 +418,34 @@ The `sql` directory contains:
 | `dml.sql` | Initial or sample data |
 
 The application also includes Flyway for version-controlled database migrations.
+Normal application runs load only `src/main/resources/db/migration`, which contains
+schema and data-transformation migrations. Test runs also load
+`src/test/resources/db/test-seed`, which contains sample accounts, clinics, pets,
+and listings. The test seed files are not packaged in the application JAR.
 
-A recommended migration structure is:
+The migration structure is:
 
 ```text
 src/main/resources/db/migration/
 ├── V1__initial_schema.sql
-├── V2__seed_reference_data.sql
-└── V3__add_new_feature.sql
+└── ...schema migrations...
+src/test/resources/db/test-seed/
+├── V2__Insert_initial_data.sql
+└── ...sample and UI test data...
 ```
 
-Once a Flyway migration has been applied, avoid editing it. Create a new migration for future schema changes.
+**Existing databases:** Earlier versions ran the sample migrations from the main
+location, including data inserts in V10. At startup, the backend recognizes this
+specific legacy Flyway history and repairs it automatically before migration.
+Unrelated migration errors still stop startup. The repair changes migration
+history only; it does not remove sample rows already inserted. Review those rows
+and their dependent records before any cleanup. New databases need no repair.
+
+After updating a local checkout, run `./mvnw clean spring-boot:run` once so old
+migration files copied into `target/classes` cannot be loaded from a stale build.
+
+After a migration has been applied, avoid editing it in later releases; add a new
+migration for future schema changes.
 
 ## API Requests
 
@@ -497,33 +539,29 @@ jdbc:postgresql://host:5432/database
 
 `ApiMvcTest` uses Spring MVC Test with `@SpringBootTest` and
 `@AutoConfigureMockMvc`. Services, repositories, password hashing, and security
-filters are real. There are no Mockito mocks, stubs, or Testcontainers.
-JUnit runs the tests; all response assertions use MockMvc.
+filters are real. Testcontainers starts an isolated PostgreSQL 15 database,
+and Flyway applies the real migrations and seed scripts. There are no Mockito
+mocks or stubs. JUnit runs the tests; response assertions use MockMvc.
 
-Create a dedicated empty PostgreSQL database and configure its connection in
-PowerShell (replace the example credentials):
+With Docker running, use:
 
-```powershell
-$env:PETIFY_TEST_DB_URL = "jdbc:postgresql://localhost:5432/petify_test"
-$env:PETIFY_TEST_DB_USERNAME = "petify_test"
-$env:PETIFY_TEST_DB_PASSWORD = "your-test-password"
-.\mvnw.cmd "-Dtest=ApiMvcTest" test
+```bash
+./mvnw clean -Dtest=ApiMvcTest test
 ```
 
-Use only a dedicated test database: Flyway runs the real migrations and seed
-scripts at startup. The `mvc-test` profile excludes local/remote connection
-settings, and this test disables the optional environment-file import. Each
-test runs in a transaction that rolls back its data afterward; startup migrations
-and seed data remain. These tests do not verify transaction commit behavior.
+On Windows, run `.\mvnw.cmd clean "-Dtest=ApiMvcTest" test`. The `mvc-test` profile
+excludes local/remote database settings, and the test disables the optional
+environment-file import. `@ServiceConnection` supplies the container's connection
+details to Spring. Each test runs in a transaction that rolls back its data
+afterward; startup migrations and seed data remain. These tests do not verify
+transaction commit behavior.
 
 The suite covers signup/login, duplicate registration, authentication failures,
-favorites, clinic lookup, admin access, and invalid request input. No Docker is
-needed when PostgreSQL is already running. The selected command excludes the
-legacy `PetifyApplicationTests` smoke test, which uses the normal app configuration.
+favorites, clinic lookup, admin access, and invalid request input. The selected
+command runs only `ApiMvcTest`; `PetifyApplicationTests` has its own PostgreSQL
+container and can run with the full Maven test suite.
 
-Use `./mvnw` on macOS/Linux or `mvn` if Maven is installed. If the Windows wrapper
-fails with `Cannot index into a null array`, run the same arguments using an
-installed or cached `mvn.cmd`. Results are in `target/surefire-reports`.
+Use `mvn` if Maven is installed. Results are in `target/surefire-reports`.
 
 ## Academic Context
 
