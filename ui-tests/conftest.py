@@ -35,6 +35,13 @@ class FavoriteApi:
     wait_for: object
 
 
+@dataclass(frozen=True)
+class ReviewApi:
+    create: object
+    reviews: object
+    track: object
+
+
 WINDOW_WIDTH = 1400
 WINDOW_HEIGHT = 1200
 
@@ -214,6 +221,72 @@ def new_account():
         )
 
     return make
+
+
+@pytest.fixture
+def registered_account(api_url, new_account):
+    def make():
+        account = new_account()
+        user = _api(
+            api_url + "/api/auth/signup",
+            method="POST",
+            payload={
+                "username": account.username,
+                "email": account.email,
+                "password": account.password,
+                "firstName": "Ui",
+                "lastName": "Registered",
+            },
+        )
+        return account, int(user["userId"])
+
+    return make
+
+
+@pytest.fixture
+def block_api(api_url, account_ids):
+    admin_id = account_ids("admin")
+
+    def run(user_id, blocked, reason=""):
+        _api(
+            "%s/api/users/admin/%s/block" % (api_url, user_id),
+            method="PATCH",
+            payload={"isBlocked": blocked, "blockedReason": reason},
+            user_id=admin_id,
+        )
+
+    return run
+
+
+@pytest.fixture
+def review_api(api_url):
+    tracked = set()
+
+    def reviews(target_id):
+        return _api("%s/api/reviews/%s" % (api_url, target_id)) or []
+
+    def track(target_id, reviewer_id):
+        tracked.add((target_id, reviewer_id))
+
+    def create(target_id, reviewer_id, rating, comment=""):
+        track(target_id, reviewer_id)
+        return _api(
+            "%s/api/reviews/%s" % (api_url, target_id),
+            method="POST",
+            payload={"rating": rating, "comment": comment},
+            user_id=reviewer_id,
+        )
+
+    yield ReviewApi(create=create, reviews=reviews, track=track)
+
+    for target_id, reviewer_id in tracked:
+        for review in reviews(target_id):
+            if int(review["reviewerId"]) == reviewer_id:
+                _api(
+                    "%s/api/reviews/%s" % (api_url, review["reviewId"]),
+                    method="DELETE",
+                    user_id=reviewer_id,
+                )
 
 
 @pytest.fixture(scope="session")

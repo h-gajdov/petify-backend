@@ -4,6 +4,9 @@ from pages.signup_page import SignupPage
 
 PASSWORD_MISMATCH = "Passwords do not match"
 ACCOUNT_CREATED = "Account created. Redirecting to login…"
+SUBMIT_LABEL = "Create account"
+LOADING_LABEL = "Creating…"
+PROFILE_LINK = "Ui's Profile"
 
 
 @pytest.fixture
@@ -152,3 +155,82 @@ def test_valid_email_format_is_accepted(signup_page, new_account):
     stored = signup_page.stored_user()
     assert stored is not None
     assert stored["email"] == tagged
+
+
+def test_show_password_toggles_both_fields(signup_page, new_account):
+    account = new_account()
+
+    signup_page.open().fill_from(account)
+
+    assert signup_page.field_type(SignupPage.PASSWORD) == "password"
+    assert signup_page.field_type(SignupPage.CONFIRM) == "password"
+    assert signup_page.toggle_labels() == ["Show password", "Show password"]
+
+    signup_page.toggle_password(1)
+
+    assert signup_page.field_type(SignupPage.PASSWORD) == "text"
+    assert signup_page.field_type(SignupPage.CONFIRM) == "text"
+    assert signup_page.toggle_labels() == ["Hide password", "Hide password"]
+
+    signup_page.toggle_password(0)
+
+    assert signup_page.field_type(SignupPage.PASSWORD) == "password"
+    assert signup_page.field_type(SignupPage.CONFIRM) == "password"
+
+
+def test_loading_state_is_shown_while_submitting(signup_page, new_account):
+    account = new_account()
+
+    signup_page.open().delay_signup(1500)
+
+    assert signup_page.submit_label() == SUBMIT_LABEL
+
+    signup_page.register_as(account)
+    signup_page.wait_for_submit_label(LOADING_LABEL)
+
+    assert signup_page.is_submit_disabled()
+
+    signup_page.wait_for_redirect_to("/")
+
+    assert signup_page.stored_user()["username"] == account.username
+
+
+def test_double_submit_sends_single_request(signup_page, new_account):
+    account = new_account()
+
+    signup_page.open().delay_signup(1500)
+    signup_page.register_as(account)
+    signup_page.wait_for_submit_label(LOADING_LABEL)
+    signup_page.press_enter()
+    signup_page.wait_for_redirect_to("/")
+
+    assert signup_page.delayed_requests() == 1
+    assert not signup_page.has_error()
+    assert signup_page.stored_user()["username"] == account.username
+
+
+def test_session_is_visible_in_nav_after_signup(signup_page, new_account):
+    account = new_account()
+
+    signup_page.open()
+
+    assert signup_page.has_nav_login()
+
+    signup_page.register_as(account)
+    signup_page.wait_for_redirect_to("/").wait_for_nav_profile()
+
+    assert signup_page.nav_profile_text() == PROFILE_LINK
+    assert signup_page.has_nav_logout()
+    assert not signup_page.has_nav_login()
+
+
+def test_session_survives_refresh(signup_page, new_account):
+    account = new_account()
+
+    signup_page.open().register_as(account)
+    signup_page.wait_for_redirect_to("/")
+    signup_page.refresh().wait_for_nav_profile()
+
+    assert signup_page.stored_user()["username"] == account.username
+    assert signup_page.nav_profile_text() == PROFILE_LINK
+    assert signup_page.has_nav_logout()

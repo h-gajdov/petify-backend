@@ -51,6 +51,8 @@ class ListingDetailsPage:
     LOADING = (By.XPATH, "//p[normalize-space()='Loading listing details…']")
     ERROR = (By.CSS_SELECTOR, ".alert.alert-danger[role='alert']")
     ERROR_DETAIL = (By.CSS_SELECTOR, ".alert.alert-danger[role='alert'] .small")
+    RETRY = (By.CSS_SELECTOR, ".alert.alert-danger[role='alert'] button")
+    MAIN_IMAGE = (By.CSS_SELECTOR, ".main-image")
     TITLE = (By.CSS_SELECTOR, ".listing-title")
     KICKER = (By.CSS_SELECTOR, ".listing-kicker")
     POSTED = (By.CSS_SELECTOR, ".posted-date")
@@ -99,6 +101,8 @@ class ListingDetailsPage:
             ]
         )
         self.listings.reload()
+        names = sorted(row["animal_name"] for row in rows)
+        self.wait.until(lambda d: sorted(self.listings.titles()) == names)
         self.listings.open_card(listing["animal_name"])
         return self.wait_until_loaded()
 
@@ -305,3 +309,21 @@ class ListingDetailsPage:
         text = alert.text
         alert.accept()
         return text
+
+    def retry(self):
+        self._click(self.driver.find_element(*self.RETRY))
+        return self
+
+    def image_src(self):
+        return self.driver.find_element(*self.MAIN_IMAGE).get_attribute("src")
+
+    def wait_for_image_src(self, fragment):
+        self.wait.until(lambda d: fragment in self.image_src())
+        return self
+
+    def record_navigations(self):
+        self.listings.record_navigations()
+        return self
+
+    def recorded_mailto(self):
+        return self.listings.recorded_mailto()

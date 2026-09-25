@@ -25,6 +25,9 @@ NOT_FOUND_DETAIL = "Failed to load listing (404)"
 HEALTH_EMPTY_TEXT = "No health records have been added yet."
 HEALTH_ERROR_TEXT = "Simulated health record failure"
 MISSING_LISTING_ID = 999999
+OWNER_EMAIL = "ui.owner@petify.test"
+PET_PLACEHOLDER = "all_outline"
+BROKEN_PHOTO_URL = "http://127.0.0.1:9/broken-photo.jpg"
 
 
 @pytest.fixture
@@ -325,3 +328,53 @@ def test_related_section_hidden_without_other_listings(details_page):
     assert details_page.title() == "StubOnly"
     assert not details_page.has_related_section()
     assert details_page.related_titles() == []
+
+
+def test_load_error_can_be_retried(details_page, listings_page):
+    listing = stub_row(animal_name="StubRetry")
+    listings_page.open()
+    details_page.install_routes(
+        [
+            route("/api/public/listings", [listing]),
+            route("/api/listings/%s" % listing["listing_id"], {"error": "down"}, 500),
+        ]
+    )
+    listings_page.reload().open_card("StubRetry")
+    details_page.wait_for_error()
+
+    assert LOAD_ERROR_TITLE in details_page.error_text()
+    assert details_page.error_detail() == "Failed to load listing (500)"
+
+    details_page.install_routes(
+        [route("/api/listings/%s" % listing["listing_id"], listing)]
+    )
+    details_page.retry().wait_until_loaded()
+
+    assert details_page.title() == "StubRetry"
+
+
+def test_contact_owner_opens_prefilled_mailto(details_page, listing_ids):
+    details_page.open(listing_ids[BEAGLE]).wait_until_loaded()
+    details_page.record_navigations().contact_owner()
+
+    assert details_page.recorded_mailto() == {
+        "to": OWNER_EMAIL,
+        "subject": "Question about UiBeagle on Petify",
+        "body": "Hi Olive Owner,\n\nI saw your listing for UiBeagle on Petify "
+        "and would like to know more.\n\nThanks!",
+    }
+
+
+def test_missing_photo_shows_placeholder_image(details_page, listing_ids):
+    details_page.open(listing_ids[BEAGLE]).wait_until_loaded()
+
+    assert PET_PLACEHOLDER in details_page.image_src()
+
+
+def test_broken_photo_url_falls_back_to_placeholder(details_page):
+    details_page.open_stubbed(
+        stub_row(animal_name="StubBroken", photo_url=BROKEN_PHOTO_URL)
+    )
+    details_page.wait_for_image_src(PET_PLACEHOLDER)
+
+    assert BROKEN_PHOTO_URL not in details_page.image_src()
