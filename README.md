@@ -493,6 +493,38 @@ jdbc:postgresql://host:5432/database
 ```
 
 
+## MockMvc tests (real application components)
+
+`ApiMvcTest` uses Spring MVC Test with `@SpringBootTest` and
+`@AutoConfigureMockMvc`. Services, repositories, password hashing, and security
+filters are real. There are no Mockito mocks, stubs, or Testcontainers.
+JUnit runs the tests; all response assertions use MockMvc.
+
+Create a dedicated empty PostgreSQL database and configure its connection in
+PowerShell (replace the example credentials):
+
+```powershell
+$env:PETIFY_TEST_DB_URL = "jdbc:postgresql://localhost:5432/petify_test"
+$env:PETIFY_TEST_DB_USERNAME = "petify_test"
+$env:PETIFY_TEST_DB_PASSWORD = "your-test-password"
+.\mvnw.cmd "-Dtest=ApiMvcTest" test
+```
+
+Use only a dedicated test database: Flyway runs the real migrations and seed
+scripts at startup. The `mvc-test` profile excludes local/remote connection
+settings, and this test disables the optional environment-file import. Each
+test runs in a transaction that rolls back its data afterward; startup migrations
+and seed data remain. These tests do not verify transaction commit behavior.
+
+The suite covers signup/login, duplicate registration, authentication failures,
+favorites, clinic lookup, admin access, and invalid request input. No Docker is
+needed when PostgreSQL is already running. The selected command excludes the
+legacy `PetifyApplicationTests` smoke test, which uses the normal app configuration.
+
+Use `./mvnw` on macOS/Linux or `mvn` if Maven is installed. If the Windows wrapper
+fails with `Cannot index into a null array`, run the same arguments using an
+installed or cached `mvn.cmd`. Results are in `target/surefire-reports`.
+
 ## Academic Context
 
 Petify was developed as a full-stack project for the **Databases** course at the Faculty of Computer Science and Engineering (FINKI).
