@@ -1,8 +1,10 @@
 import json
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.request import Request, urlopen
 
 import pytest
@@ -11,6 +13,7 @@ from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 
 from stack import managed_ui_stack
+from video import ScreencastRecorder, combine, ffmpeg_available
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,61 @@ def pytest_addoption(parser):
         default=False,
         help="Use PETIFY_BASE_URL and PETIFY_API_URL instead of starting a Testcontainers stack.",
     )
+    parser.addoption(
+        "--record-video",
+        action="store_true",
+        default=False,
+        help="Record an mp4 of every test (Chrome only), plus all-tests.mp4 joining them in run order.",
+    )
+    parser.addoption(
+        "--video-size",
+        default="1920x1000",
+        metavar="WIDTHxHEIGHT",
+        help="Page size while recording, and the video resolution (default: 1920x1000).",
+    )
+    parser.addoption(
+        "--video-dir",
+        default="videos",
+        help="Directory for --record-video output (default: videos).",
+    )
+
+
+def pytest_configure(config):
+    config.recorded_videos = []
+    if config.getoption("--record-video") and not ffmpeg_available():
+        raise pytest.UsageError("--record-video needs ffmpeg on PATH")
+    if not re.fullmatch(r"\d+x\d+", config.getoption("--video-size")):
+        raise pytest.UsageError("--video-size must look like 1920x1080")
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = yield
+    setattr(item, "report_" + report.when, report)
+    return report
+
+
+def pytest_sessionfinish(session):
+    if session.config.recorded_videos:
+        combine(session.config.recorded_videos, _video_dir(session.config) / "all-tests.mp4")
+
+
+def _video_dir(config):
+    return config.rootpath / config.getoption("--video-dir")
+
+
+def _outcome(item):
+    report = getattr(item, "report_call", None) or getattr(item, "report_setup", None)
+    return report.outcome if report else "unknown"
+
+
+def _video_path(item):
+    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", item.nodeid.replace("tests/", "", 1).replace("::", "__"))
+    return _video_dir(item.config) / ("%s.%s.mp4" % (name, _outcome(item)))
+
+
+def _caption(item):
+    return item.nodeid.replace("tests/", "", 1).replace("::", "  \u203a  ")
 
 
 def _api(url, method="GET", payload=None, user_id=None):
@@ -339,6 +397,23 @@ def driver(base_url, request):
 
     instance.set_page_load_timeout(30)
 
+    recorder = None
+    if request.config.getoption("--record-video"):
+        if browser == "firefox":
+            pytest.fail("--record-video supports Chrome only; unset PETIFY_BROWSER=firefox")
+        width, height = (int(value) for value in request.config.getoption("--video-size").split("x"))
+        # The window includes browser UI, so grow it until the page itself matches the video.
+        chrome_height = instance.execute_script("return window.outerHeight - window.innerHeight;")
+        instance.set_window_size(width, height + chrome_height)
+        recorder = ScreencastRecorder(instance, width, height)
+
     yield instance
 
-    instance.quit()
+    try:
+        if recorder is not None:
+            ended_at = recorder.stop(instance)
+            output = _video_path(request.node)
+            if recorder.save(output, ended_at, _caption(request.node), _outcome(request.node)):
+                request.config.recorded_videos.append(output)
+    finally:
+        instance.quit()
